@@ -3,12 +3,25 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import {
+  getClientId,
+  getDatabaseInfo,
+  loadAppState,
+  saveAppState,
+  saveAppleHealthConnection,
+  saveBurnLogs,
+  saveFastingLogs,
+  saveFastingState,
+  saveGoals,
+  saveMeals,
+  saveWaterLogs,
+} from './appStateStore';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Increase payload limits for base64 images
 app.use(express.json({ limit: '20mb' }));
@@ -35,7 +48,91 @@ function getGeminiClient(): GoogleGenAI {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', hasApiKey: Boolean(process.env.GEMINI_API_KEY) });
+  const databaseInfo = getDatabaseInfo();
+  res.json({
+    status: 'ok',
+    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasDatabase: true,
+    dataDirectory: databaseInfo.dataDirectory,
+  });
+});
+
+app.get('/api/storage', (req, res) => {
+  const clientId = getClientId(req);
+  res.json(loadAppState(clientId));
+});
+
+app.put('/api/storage', (req, res) => {
+  const clientId = getClientId(req);
+  res.json(saveAppState(clientId, req.body));
+});
+
+app.put('/api/storage/meals', (req, res) => {
+  if (!Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Meals payload must be an array.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveMeals(clientId, req.body));
+});
+
+app.put('/api/storage/goals', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ error: 'Goals payload must be an object.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveGoals(clientId, req.body));
+});
+
+app.put('/api/storage/water', (req, res) => {
+  if (!Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Water payload must be an array.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveWaterLogs(clientId, req.body));
+});
+
+app.put('/api/storage/burn', (req, res) => {
+  if (!Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Burn payload must be an array.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveBurnLogs(clientId, req.body));
+});
+
+app.put('/api/storage/fasting-state', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ error: 'Fasting state payload must be an object.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveFastingState(clientId, req.body));
+});
+
+app.put('/api/storage/fasting-logs', (req, res) => {
+  if (!Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Fasting logs payload must be an array.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveFastingLogs(clientId, req.body));
+});
+
+app.get('/api/storage/apple-health', (req, res) => {
+  const clientId = getClientId(req);
+  res.json(loadAppState(clientId).appleHealthConnection);
+});
+
+app.put('/api/storage/apple-health', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ error: 'Apple Health payload must be an object.' });
+  }
+
+  const clientId = getClientId(req);
+  res.json(saveAppleHealthConnection(clientId, req.body));
 });
 
 // Apple Sign-In OAuth URL endpoint

@@ -83,3 +83,18 @@ export interface FastingLog {
   protocolName: string;
 }
 
+export interface AppleHealthConnectionState {
+  isConnected: boolean;
+  appleAccountEmail: string;
+}
+
+export interface AppStorageSnapshot {
+  meals: MealEntry[];
+  goals: DailyGoals;
+  waterLogs: WaterEntry[];
+  burnLogs: BurnEntry[];
+  fastingState: FastingState;
+  fastingLogs: FastingLog[];
+  appleHealthConnection: AppleHealthConnectionState;
+}
+

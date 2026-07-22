@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BurnEntry } from '../types';
+import { loadAppleHealthConnection, saveAppleHealthConnection } from '../lib/storage';
 import { Smartphone, CheckCircle2, Copy, ExternalLink, ShieldCheck, RefreshCw, X, ArrowUpRight, Sparkles, Key, Zap, Check } from 'lucide-react';
 
 interface AppleHealthConnectModalProps {
@@ -13,13 +14,8 @@ export const AppleHealthConnectModal: React.FC<AppleHealthConnectModalProps> = (
   onClose,
   onImportBurnEntries,
 }) => {
-  const [isConnected, setIsConnected] = useState<boolean>(() => {
-    return localStorage.getItem('apple_health_connected') === 'true';
-  });
-
-  const [appleAccountEmail, setAppleAccountEmail] = useState<string>(() => {
-    return localStorage.getItem('apple_account_email') || '';
-  });
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [appleAccountEmail, setAppleAccountEmail] = useState<string>('');
 
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [copiedWebhook, setCopiedWebhook] = useState<boolean>(false);
@@ -35,17 +31,31 @@ export const AppleHealthConnectModal: React.FC<AppleHealthConnectModalProps> = (
 
   // Listen for OAuth message from popup
   useEffect(() => {
+    void loadAppleHealthConnection()
+      .then((connectionState) => {
+        setIsConnected(connectionState.isConnected);
+        setAppleAccountEmail(connectionState.appleAccountEmail);
+      })
+      .catch((error) => {
+        console.error('Failed to load Apple Health connection state', error);
+      });
+
     const handleMessage = (event: MessageEvent) => {
       const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+      const isSameOrigin = typeof window !== 'undefined' && origin === window.location.origin;
+      if (!isSameOrigin && !origin.endsWith('.run.app') && !origin.includes('localhost')) {
         return;
       }
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS' || event.data?.type === 'APPLE_OAUTH_SUCCESS') {
         const email = event.data?.email || 'apple.user@icloud.com';
         setIsConnected(true);
         setAppleAccountEmail(email);
-        localStorage.setItem('apple_health_connected', 'true');
-        localStorage.setItem('apple_account_email', email);
+        void saveAppleHealthConnection({
+          isConnected: true,
+          appleAccountEmail: email,
+        }).catch((error) => {
+          console.error('Failed to save Apple Health connection state', error);
+        });
         setIsConnecting(false);
         setSyncStatusMsg('Apple Health account successfully connected via Sign in with Apple!');
       }
@@ -83,8 +93,12 @@ export const AppleHealthConnectModal: React.FC<AppleHealthConnectModalProps> = (
         const dummyEmail = 'user@icloud.com';
         setIsConnected(true);
         setAppleAccountEmail(dummyEmail);
-        localStorage.setItem('apple_health_connected', 'true');
-        localStorage.setItem('apple_account_email', dummyEmail);
+        void saveAppleHealthConnection({
+          isConnected: true,
+          appleAccountEmail: dummyEmail,
+        }).catch((error) => {
+          console.error('Failed to save Apple Health connection state', error);
+        });
         setIsConnecting(false);
         setSyncStatusMsg('Connected to Apple Account! Active calories synced from HealthKit.');
       }, 1000);
@@ -94,8 +108,12 @@ export const AppleHealthConnectModal: React.FC<AppleHealthConnectModalProps> = (
   const handleDisconnect = () => {
     setIsConnected(false);
     setAppleAccountEmail('');
-    localStorage.removeItem('apple_health_connected');
-    localStorage.removeItem('apple_account_email');
+    void saveAppleHealthConnection({
+      isConnected: false,
+      appleAccountEmail: '',
+    }).catch((error) => {
+      console.error('Failed to clear Apple Health connection state', error);
+    });
     setSyncStatusMsg('Disconnected from Apple Health.');
   };
 

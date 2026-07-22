@@ -1,6 +1,8 @@
 node_modules/
 build/
 dist/
+data/
+*.sqlite
 coverage/
 .DS_Store
 *.log

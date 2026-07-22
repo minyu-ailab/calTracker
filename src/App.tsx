@@ -1,17 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { MealEntry, DailyGoals, WaterEntry, BurnEntry, FastingState, FastingLog } from './types';
 import {
-  loadStoredMeals,
+  createDefaultFastingState,
+  DEFAULT_GOALS,
+  loadStoredAppState,
   saveStoredMeals,
-  loadStoredGoals,
   saveStoredGoals,
-  loadStoredWater,
   saveStoredWater,
-  loadStoredBurn,
   saveStoredBurn,
-  loadStoredFastingState,
   saveStoredFastingState,
-  loadStoredFastingLogs,
   saveStoredFastingLogs,
   getTodayDateString,
 } from './lib/storage';
@@ -33,10 +30,10 @@ export default function App() {
 
   // Storage states
   const [meals, setMeals] = useState<MealEntry[]>([]);
-  const [goals, setGoals] = useState<DailyGoals>(loadStoredGoals());
+  const [goals, setGoals] = useState<DailyGoals>(DEFAULT_GOALS);
   const [waterLogs, setWaterLogs] = useState<WaterEntry[]>([]);
   const [burnLogs, setBurnLogs] = useState<BurnEntry[]>([]);
-  const [fastingState, setFastingState] = useState<FastingState>(loadStoredFastingState());
+  const [fastingState, setFastingState] = useState<FastingState>(createDefaultFastingState());
   const [fastingLogs, setFastingLogs] = useState<FastingLog[]>([]);
 
   // Modal open states
@@ -48,23 +45,46 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    setMeals(loadStoredMeals());
-    setGoals(loadStoredGoals());
-    setWaterLogs(loadStoredWater());
-    setBurnLogs(loadStoredBurn());
-    setFastingState(loadStoredFastingState());
-    setFastingLogs(loadStoredFastingLogs());
+    let isCancelled = false;
+
+    void (async () => {
+      try {
+        const state = await loadStoredAppState();
+        if (isCancelled) {
+          return;
+        }
+
+        setMeals(state.meals);
+        setGoals(state.goals);
+        setWaterLogs(state.waterLogs);
+        setBurnLogs(state.burnLogs);
+        setFastingState(state.fastingState);
+        setFastingLogs(state.fastingLogs);
+      } catch (error) {
+        console.error('Failed to load stored app state', error);
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
+
+  const persist = (label: string, operation: Promise<unknown>) => {
+    void operation.catch((error) => {
+      console.error(`Failed to save ${label}`, error);
+    });
+  };
 
   const handleUpdateFastingState = (newState: FastingState) => {
     setFastingState(newState);
-    saveStoredFastingState(newState);
+    persist('fasting state', saveStoredFastingState(newState));
   };
 
   const handleLogCompletedFast = (newLog: FastingLog) => {
     const updated = [newLog, ...fastingLogs];
     setFastingLogs(updated);
-    saveStoredFastingLogs(updated);
+    persist('fasting logs', saveStoredFastingLogs(updated));
   };
 
 
@@ -89,7 +109,7 @@ export default function App() {
       updated = [newMeal, ...meals];
     }
     setMeals(updated);
-    saveStoredMeals(updated);
+    persist('meals', saveStoredMeals(updated));
     setEditingMeal(null);
 
     // Auto adjust Intermittent Fasting timer
@@ -135,24 +155,24 @@ export default function App() {
   const handleDeleteMeal = (id: string) => {
     const updated = meals.filter((m) => m.id !== id);
     setMeals(updated);
-    saveStoredMeals(updated);
+    persist('meals', saveStoredMeals(updated));
   };
 
   const handleSaveGoals = (newGoals: DailyGoals) => {
     setGoals(newGoals);
-    saveStoredGoals(newGoals);
+    persist('goals', saveStoredGoals(newGoals));
   };
 
   const handleSaveBurn = (newBurn: BurnEntry) => {
     const updated = [newBurn, ...burnLogs];
     setBurnLogs(updated);
-    saveStoredBurn(updated);
+    persist('burn logs', saveStoredBurn(updated));
   };
 
   const handleDeleteBurn = (id: string) => {
     const updated = burnLogs.filter((b) => b.id !== id);
     setBurnLogs(updated);
-    saveStoredBurn(updated);
+    persist('burn logs', saveStoredBurn(updated));
   };
 
   const handleAddWater = (amountMl: number) => {
@@ -172,13 +192,13 @@ export default function App() {
     ];
 
     setWaterLogs(updated);
-    saveStoredWater(updated);
+    persist('water logs', saveStoredWater(updated));
   };
 
   const handleImportAppleBurnEntries = (newEntries: BurnEntry[]) => {
     const updated = [...newEntries, ...burnLogs];
     setBurnLogs(updated);
-    saveStoredBurn(updated);
+    persist('burn logs', saveStoredBurn(updated));
   };
 
   // Filtered for selected date
