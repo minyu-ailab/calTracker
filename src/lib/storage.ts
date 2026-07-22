@@ -40,6 +40,21 @@ Macronutrient Targets:
 Hydration Goal: 2.5 Liters (2500ml) water daily.`,
 };
 
+export const DEFAULT_APPLE_HEALTH_CONNECTION: AppleHealthConnectionState = {
+  isConnected: false,
+  appleAccountEmail: '',
+};
+
+export function createDefaultFastingState(): FastingState {
+  const fourteenHoursAgo = Date.now() - 14 * 3600 * 1000;
+  return {
+    isFasting: true,
+    startTime: fourteenHoursAgo,
+    targetHours: 16,
+    protocolName: '16:8 Standard',
+  };
+}
+
 export function getTodayDateString(): string {
   const d = new Date();
   const year = d.getFullYear();
@@ -48,286 +63,269 @@ export function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-export function loadStoredMeals(): MealEntry[] {
+function isBrowser(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function getClientId(): string {
+  if (!isBrowser()) {
+    return 'server';
+  }
+
+  try {
+    const existingClientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
+    if (existingClientId) {
+      return existingClientId;
+    }
+
+    const generatedClientId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? `client-${crypto.randomUUID()}`
+      : `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    localStorage.setItem(STORAGE_KEYS.CLIENT_ID, generatedClientId);
+    return generatedClientId;
+  } catch (e) {
+    console.error('Error loading client id', e);
+    return 'anonymous';
+  }
+}
+
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('x-client-id', getClientId());
+
+  const response = await fetch(url, {
+    ...init,
+    headers,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed for ${url}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function loadLegacyMeals(): MealEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.MEALS);
     if (!raw) return getDefaultInitialMeals();
     return JSON.parse(raw);
   } catch (e) {
-    console.error('Error loading meals from storage', e);
-    return [];
-
-    export const DEFAULT_APPLE_HEALTH_CONNECTION: AppleHealthConnectionState = {
-      isConnected: false,
-      appleAccountEmail: '',
-    };
-
-    export function createDefaultFastingState(): FastingState {
-      const fourteenHoursAgo = Date.now() - 14 * 3600 * 1000;
-      return {
-        isFasting: true,
-        startTime: fourteenHoursAgo,
-        targetHours: 16,
-        protocolName: '16:8 Standard',
-      };
-    }
+    console.error('Error loading meals from local storage', e);
+    return getDefaultInitialMeals();
   }
 }
 
-export function saveStoredMeals(meals: MealEntry[]): void {
+function loadLegacyGoals(): DailyGoals {
   try {
-    localStorage.setItem(STORAGE_KEYS.MEALS, JSON.stringify(meals));
-  } catch (e) {
-    console.error('Error saving meals to storage', e);
-  }
-    function isBrowser(): boolean {
-      return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-    }
-
-    function getClientId(): string {
-      if (!isBrowser()) {
-        return 'server';
-      }
-
-
-        const existingClientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
-        if (existingClientId) {
-          return existingClientId;
-        }
-
-        const generatedClientId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-          ? `client-${crypto.randomUUID()}`
-          : `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-
-        localStorage.setItem(STORAGE_KEYS.CLIENT_ID, generatedClientId);
-        return generatedClientId;
+    const raw = localStorage.getItem(STORAGE_KEYS.GOALS);
     if (!raw) return DEFAULT_GOALS;
-        console.error('Error loading client id', e);
-        return 'anonymous';
-    console.error('Error loading goals from storage', e);
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error loading goals from local storage', e);
     return DEFAULT_GOALS;
   }
-    async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-      const headers = new Headers(init?.headers);
-      headers.set('Content-Type', 'application/json');
-      headers.set('x-client-id', getClientId());
+}
 
-      const response = await fetch(url, {
-        ...init,
-        headers,
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `Request failed for ${url}`);
-  } catch (e) {
-
-      return response.json() as Promise<T>;
-    console.error('Error saving goals to storage', e);
-  }
-    function loadLegacyMeals(): MealEntry[] {
-
-        const raw = localStorage.getItem(STORAGE_KEYS.MEALS);
-        if (!raw) return getDefaultInitialMeals();
+function loadLegacyWater(): WaterEntry[] {
+  try {
     const raw = localStorage.getItem(STORAGE_KEYS.WATER);
     if (!raw) return [];
-        console.error('Error loading meals from local storage', e);
-        return getDefaultInitialMeals();
-    console.error('Error loading water logs', e);
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error loading water logs from local storage', e);
     return [];
   }
-    function loadLegacyGoals(): DailyGoals {
+}
 
-        const raw = localStorage.getItem(STORAGE_KEYS.GOALS);
-        if (!raw) return DEFAULT_GOALS;
-        return JSON.parse(raw);
-  try {
-        console.error('Error loading goals from local storage', e);
-        return DEFAULT_GOALS;
-  } catch (e) {
-    console.error('Error saving water logs', e);
-  }
-    function loadLegacyWater(): WaterEntry[] {
-
-export function loadStoredBurn(): BurnEntry[] {
+function loadLegacyBurn(): BurnEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.BURN);
     if (!raw) return getDefaultInitialBurn();
-        console.error('Error loading water logs from local storage', e);
+    return JSON.parse(raw);
   } catch (e) {
-    console.error('Error loading burn logs', e);
-    return [];
+    console.error('Error loading burn logs from local storage', e);
+    return getDefaultInitialBurn();
   }
-    function loadLegacyBurn(): BurnEntry[] {
+}
 
-        const raw = localStorage.getItem(STORAGE_KEYS.BURN);
-        if (!raw) return getDefaultInitialBurn();
-        return JSON.parse(raw);
-  try {
-        console.error('Error loading burn logs from local storage', e);
-        return getDefaultInitialBurn();
-  } catch (e) {
-    console.error('Error saving burn logs', e);
-  }
-    function loadLegacyFastingState(): FastingState {
-
-        const raw = localStorage.getItem(STORAGE_KEYS.FASTING_STATE);
-        if (!raw) return createDefaultFastingState();
-  return [
-    {
-        console.error('Error loading fasting state from local storage', e);
-        return {
-          isFasting: false,
-          startTime: null,
-          targetHours: 16,
-          protocolName: '16:8 Standard',
-        };
-      activityName: 'Morning Jog & Core Workout',
-      caloriesBurned: 350,
-      timestamp: Date.now() - 3600000 * 5,
-    function loadLegacyFastingLogs(): FastingLog[] {
-  ];
-        const raw = localStorage.getItem(STORAGE_KEYS.FASTING_LOGS);
-        if (!raw) return getDefaultInitialFastingLogs();
-        return JSON.parse(raw);
-
-        console.error('Error loading fasting logs from local storage', e);
-        return getDefaultInitialFastingLogs();
+function loadLegacyFastingState(): FastingState {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.FASTING_STATE);
-    if (!raw) {
-    function loadLegacyAppleHealthConnection(): AppleHealthConnectionState {
-      try {
-        return {
-          isConnected: localStorage.getItem(STORAGE_KEYS.APPLE_HEALTH_CONNECTED) === 'true',
-          appleAccountEmail: localStorage.getItem(STORAGE_KEYS.APPLE_ACCOUNT_EMAIL) || '',
-        };
-      } catch (e) {
-        console.error('Error loading Apple Health connection from local storage', e);
-        return DEFAULT_APPLE_HEALTH_CONNECTION;
-      }
-    console.error('Error loading fasting state', e);
-    return {
-    function hasLegacyStorageData(): boolean {
-      if (!isBrowser()) {
-        return false;
-    console.error('Error loading fasting logs', e);
-
-      return [
-        STORAGE_KEYS.MEALS,
-        STORAGE_KEYS.GOALS,
-        STORAGE_KEYS.WATER,
-        STORAGE_KEYS.BURN,
-        STORAGE_KEYS.FASTING_STATE,
-        STORAGE_KEYS.FASTING_LOGS,
-        STORAGE_KEYS.APPLE_HEALTH_CONNECTED,
-        STORAGE_KEYS.APPLE_ACCOUNT_EMAIL,
-      ].some((storageKey) => localStorage.getItem(storageKey) !== null);
-    return [];
-  }
-    function getLegacyAppState(): AppStorageSnapshot {
-      return {
-        meals: loadLegacyMeals(),
-        goals: loadLegacyGoals(),
-        waterLogs: loadLegacyWater(),
-        burnLogs: loadLegacyBurn(),
-        fastingState: loadLegacyFastingState(),
-        fastingLogs: loadLegacyFastingLogs(),
-        appleHealthConnection: loadLegacyAppleHealthConnection(),
-      };
-    }
-
-    export function getDefaultAppState(): AppStorageSnapshot {
-      return {
-        meals: getDefaultInitialMeals(),
-        goals: DEFAULT_GOALS,
-        waterLogs: [],
-        burnLogs: getDefaultInitialBurn(),
-        fastingState: createDefaultFastingState(),
-        fastingLogs: getDefaultInitialFastingLogs(),
-        appleHealthConnection: DEFAULT_APPLE_HEALTH_CONNECTION,
-      };
-    }
-
-    export async function loadStoredAppState(): Promise<AppStorageSnapshot> {
-      try {
-        const serverState = await requestJson<AppStorageSnapshot>('/api/storage');
-
-        if (isBrowser() && hasLegacyStorageData() && !localStorage.getItem(STORAGE_KEYS.MIGRATION_COMPLETE)) {
-          const migratedState = await saveStoredAppState(getLegacyAppState());
-          localStorage.setItem(STORAGE_KEYS.MIGRATION_COMPLETE, 'true');
-          return migratedState;
-        }
-
-        return serverState;
-      } catch (e) {
-        console.error('Error loading app state from server', e);
-        return getDefaultAppState();
+    if (!raw) return createDefaultFastingState();
+    return JSON.parse(raw);
   } catch (e) {
-    console.error('Error saving fasting logs', e);
+    console.error('Error loading fasting state from local storage', e);
+    return {
+      isFasting: false,
+      startTime: null,
+      targetHours: 16,
+      protocolName: '16:8 Standard',
+    };
   }
-    export function saveStoredAppState(state: AppStorageSnapshot): Promise<AppStorageSnapshot> {
-      return requestJson<AppStorageSnapshot>('/api/storage', {
-        method: 'PUT',
-        body: JSON.stringify(state),
-      });
-      id: 'fast-log-yesterday',
-      date: today,
-    export function saveStoredMeals(meals: MealEntry[]): Promise<MealEntry[]> {
-      return requestJson<MealEntry[]>('/api/storage/meals', {
-        method: 'PUT',
-        body: JSON.stringify(meals),
-      });
-  ];
 }
-    export function saveStoredGoals(goals: DailyGoals): Promise<DailyGoals> {
-      return requestJson<DailyGoals>('/api/storage/goals', {
-        method: 'PUT',
-        body: JSON.stringify(goals),
-      });
+
+function loadLegacyFastingLogs(): FastingLog[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.FASTING_LOGS);
+    if (!raw) return getDefaultInitialFastingLogs();
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error loading fasting logs from local storage', e);
+    return getDefaultInitialFastingLogs();
+  }
+}
+
+function loadLegacyAppleHealthConnection(): AppleHealthConnectionState {
+  try {
+    return {
+      isConnected: localStorage.getItem(STORAGE_KEYS.APPLE_HEALTH_CONNECTED) === 'true',
+      appleAccountEmail: localStorage.getItem(STORAGE_KEYS.APPLE_ACCOUNT_EMAIL) || '',
+    };
+  } catch (e) {
+    console.error('Error loading Apple Health connection from local storage', e);
+    return DEFAULT_APPLE_HEALTH_CONNECTION;
+  }
+}
+
+function hasLegacyStorageData(): boolean {
+  if (!isBrowser()) {
+    return false;
+  }
+
+  return [
+    STORAGE_KEYS.MEALS,
+    STORAGE_KEYS.GOALS,
+    STORAGE_KEYS.WATER,
+    STORAGE_KEYS.BURN,
+    STORAGE_KEYS.FASTING_STATE,
+    STORAGE_KEYS.FASTING_LOGS,
+    STORAGE_KEYS.APPLE_HEALTH_CONNECTED,
+    STORAGE_KEYS.APPLE_ACCOUNT_EMAIL,
+  ].some((storageKey) => localStorage.getItem(storageKey) !== null);
+}
+
+function getLegacyAppState(): AppStorageSnapshot {
+  return {
+    meals: loadLegacyMeals(),
+    goals: loadLegacyGoals(),
+    waterLogs: loadLegacyWater(),
+    burnLogs: loadLegacyBurn(),
+    fastingState: loadLegacyFastingState(),
+    fastingLogs: loadLegacyFastingLogs(),
+    appleHealthConnection: loadLegacyAppleHealthConnection(),
+  };
+}
+
+export function getDefaultAppState(): AppStorageSnapshot {
+  return {
+    meals: getDefaultInitialMeals(),
+    goals: DEFAULT_GOALS,
+    waterLogs: [],
+    burnLogs: getDefaultInitialBurn(),
+    fastingState: createDefaultFastingState(),
+    fastingLogs: getDefaultInitialFastingLogs(),
+    appleHealthConnection: DEFAULT_APPLE_HEALTH_CONNECTION,
+  };
+}
+
+export async function loadStoredAppState(): Promise<AppStorageSnapshot> {
+  try {
+    const serverState = await requestJson<AppStorageSnapshot>('/api/storage');
+
+    if (isBrowser() && hasLegacyStorageData() && !localStorage.getItem(STORAGE_KEYS.MIGRATION_COMPLETE)) {
+      const migratedState = await saveStoredAppState(getLegacyAppState());
+      localStorage.setItem(STORAGE_KEYS.MIGRATION_COMPLETE, 'true');
+      return migratedState;
+    }
+
+    return serverState;
+  } catch (e) {
+    console.error('Error loading app state from server', e);
+    return getDefaultAppState();
+  }
+}
+
+export function saveStoredAppState(state: AppStorageSnapshot): Promise<AppStorageSnapshot> {
+  return requestJson<AppStorageSnapshot>('/api/storage', {
+    method: 'PUT',
+    body: JSON.stringify(state),
+  });
+}
+
+export function saveStoredMeals(meals: MealEntry[]): Promise<MealEntry[]> {
+  return requestJson<MealEntry[]>('/api/storage/meals', {
+    method: 'PUT',
+    body: JSON.stringify(meals),
+  });
+}
+
+export function saveStoredGoals(goals: DailyGoals): Promise<DailyGoals> {
+  return requestJson<DailyGoals>('/api/storage/goals', {
+    method: 'PUT',
+    body: JSON.stringify(goals),
+  });
+}
+
+export function saveStoredWater(entries: WaterEntry[]): Promise<WaterEntry[]> {
+  return requestJson<WaterEntry[]>('/api/storage/water', {
+    method: 'PUT',
+    body: JSON.stringify(entries),
+  });
+}
+
+export function saveStoredBurn(entries: BurnEntry[]): Promise<BurnEntry[]> {
+  return requestJson<BurnEntry[]>('/api/storage/burn', {
+    method: 'PUT',
+    body: JSON.stringify(entries),
+  });
+}
+
+export function saveStoredFastingState(state: FastingState): Promise<FastingState> {
+  return requestJson<FastingState>('/api/storage/fasting-state', {
+    method: 'PUT',
+    body: JSON.stringify(state),
+  });
+}
+
+export function saveStoredFastingLogs(logs: FastingLog[]): Promise<FastingLog[]> {
+  return requestJson<FastingLog[]>('/api/storage/fasting-logs', {
+    method: 'PUT',
+    body: JSON.stringify(logs),
+  });
+}
+
+export function loadAppleHealthConnection(): Promise<AppleHealthConnectionState> {
+  return requestJson<AppleHealthConnectionState>('/api/storage/apple-health');
+}
+
+export function saveAppleHealthConnection(
+  connectionState: AppleHealthConnectionState
+): Promise<AppleHealthConnectionState> {
+  return requestJson<AppleHealthConnectionState>('/api/storage/apple-health', {
+    method: 'PUT',
+    body: JSON.stringify(connectionState),
+  });
+}
+
+function getDefaultInitialMeals(): MealEntry[] {
+  const today = getTodayDateString();
+  return [
+    {
+      id: 'demo-meal-1',
+      date: today,
+      timestamp: Date.now() - 3600000 * 4,
+      mealType: 'breakfast',
+      mealName: 'Avocado Egg Toast & Berry Bowl',
+      description: '2 poached eggs, 1/2 avocado, 2 slices whole grain sourdough, 1/2 cup fresh blueberries.',
+      foodItems: [
+        { item: 'Poached Eggs', portion: '2 large eggs', calories: 140, proteinGrams: 12, carbsGrams: 1, fatGrams: 10, fiberGrams: 0 },
+        { item: 'Whole Grain Sourdough', portion: '2 slices (70g)', calories: 180, proteinGrams: 7, carbsGrams: 32, fatGrams: 2, fiberGrams: 4 },
         { item: 'Avocado Spread', portion: '1/2 medium (75g)', calories: 120, proteinGrams: 1.5, carbsGrams: 6, fatGrams: 11, fiberGrams: 5 },
         { item: 'Blueberries', portion: '1/2 cup (75g)', calories: 42, proteinGrams: 0.5, carbsGrams: 11, fatGrams: 0.2, fiberGrams: 2 },
-    export function saveStoredWater(entries: WaterEntry[]): Promise<WaterEntry[]> {
-      return requestJson<WaterEntry[]>('/api/storage/water', {
-        method: 'PUT',
-        body: JSON.stringify(entries),
-      });
-    }
-
-    export function saveStoredBurn(entries: BurnEntry[]): Promise<BurnEntry[]> {
-      return requestJson<BurnEntry[]>('/api/storage/burn', {
-        method: 'PUT',
-        body: JSON.stringify(entries),
-      });
-    }
-
-    export function saveStoredFastingState(state: FastingState): Promise<FastingState> {
-      return requestJson<FastingState>('/api/storage/fasting-state', {
-        method: 'PUT',
-        body: JSON.stringify(state),
-      });
-    }
-
-    export function saveStoredFastingLogs(logs: FastingLog[]): Promise<FastingLog[]> {
-      return requestJson<FastingLog[]>('/api/storage/fasting-logs', {
-        method: 'PUT',
-        body: JSON.stringify(logs),
-      });
-    }
-
-    export function loadAppleHealthConnection(): Promise<AppleHealthConnectionState> {
-      return requestJson<AppleHealthConnectionState>('/api/storage/apple-health');
-    }
-
-    export function saveAppleHealthConnection(
-      connectionState: AppleHealthConnectionState
-    ): Promise<AppleHealthConnectionState> {
-      return requestJson<AppleHealthConnectionState>('/api/storage/apple-health', {
-        method: 'PUT',
-        body: JSON.stringify(connectionState),
-      });
-    }
-
       ],
       totalCalories: 482,
       totalProteinGrams: 21,
@@ -340,7 +338,7 @@ export function loadStoredBurn(): BurnEntry[] {
     {
       id: 'demo-meal-2',
       date: today,
-      timestamp: Date.now() - 3600000 * 1,
+      timestamp: Date.now() - 3600000,
       mealType: 'lunch',
       mealName: 'Grilled Chicken Quinoa Salad',
       description: 'Grilled chicken breast with quinoa, cherry tomatoes, cucumber, feta cheese, and olive oil dressing.',
