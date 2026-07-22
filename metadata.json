@@ -1,0 +1,6 @@
+{
+  "name": "AI Dietician & Meal Tracker",
+  "description": "Log meals via photo or text to get instant calorie/macro estimates, running daily totals compared to your goals document, and actionable dietician advice.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #F5F5F0;
+    color: #2F362F;
+  }
+}
+
+.font-serif-title {
+  font-family: 'Libre Baskerville', serif;
+}
+
+.card-natural {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(90, 90, 64, 0.12);
+  box-shadow: 0 4px 20px rgba(90, 90, 64, 0.08);
+}
