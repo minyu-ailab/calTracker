@@ -28,13 +28,31 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install dependencies (lockfile)
-        if: ${{ hashFiles('package-lock.json') != '' || hashFiles('npm-shrinkwrap.json') != '' }}
-        run: npm ci
+      - name: Configure npm registry (optional)
+        if: ${{ vars.NPM_REGISTRY_URL != '' }}
+        env:
+          NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm config set registry "$NPM_REGISTRY_URL"
 
-      - name: Install dependencies (no lockfile)
-        if: ${{ hashFiles('package-lock.json') == '' && hashFiles('npm-shrinkwrap.json') == '' }}
-        run: npm install
+          if [ -n "$NPM_TOKEN" ]; then
+            REG_HOST="$NPM_REGISTRY_URL"
+            REG_HOST="${REG_HOST#https://}"
+            REG_HOST="${REG_HOST#http://}"
+            REG_HOST="${REG_HOST%/}"
+            echo "//$REG_HOST/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            npm config set always-auth true
+          fi
+
+      - name: Install dependencies
+        run: |
+          set -e
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Build application
         run: npm run build
@@ -58,6 +76,9 @@ jobs:
       contents: none
     runs-on: ubuntu-latest
     needs: build
+    env:
+      HAS_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+      HAS_AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
     environment:
       name: production
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
@@ -68,10 +89,34 @@ jobs:
         with:
           name: node-app
 
-      - name: Deploy to Azure Web App
+      - name: Validate Azure credentials
+        run: |
+          if [ -z "$HAS_PUBLISH_PROFILE" ] && [ -z "$HAS_AZURE_CREDENTIALS" ]; then
+            echo "Missing Azure credentials. Configure one of:"
+            echo "1) Secret AZURE_WEBAPP_PUBLISH_PROFILE (publish profile XML)"
+            echo "2) Secret AZURE_CREDENTIALS (service principal JSON for azure/login)"
+            exit 1
+          fi
+
+      - name: Azure Login (service principal)
+        if: env.HAS_PUBLISH_PROFILE == '' && env.HAS_AZURE_CREDENTIALS != ''
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Web App (publish profile)
+        if: env.HAS_PUBLISH_PROFILE != ''
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
+
+      - name: Deploy to Azure Web App (Azure login)
+        if: env.HAS_PUBLISH_PROFILE == '' && env.HAS_AZURE_CREDENTIALS != ''
+        id: deploy-to-webapp-login
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: .
