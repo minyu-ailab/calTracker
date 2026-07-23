@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -67,11 +70,19 @@ jobs:
             exit 1
           fi
 
+          if [ -z "${{ vars.AZURE_WEBAPP_NAME }}" ]; then
+            echo "Missing app variable. Configure repository variable: AZURE_WEBAPP_NAME"
+            exit 1
+          fi
+
+      - name: Show deploy target
+        run: echo "Deploying to app '${{ env.AZURE_WEBAPP_NAME }}'"
+
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'CalTracker'
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: .
           

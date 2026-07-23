@@ -1,6 +1,5 @@
-import { mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
 import type {
   AppStorageSnapshot,
   AppleHealthConnectionState,
@@ -12,43 +11,21 @@ import type {
   WaterEntry,
 } from './src/types';
 
-const STATE_KEYS = {
-  MEALS: 'meals',
-  GOALS: 'goals',
-  WATER: 'water',
-  BURN: 'burn',
-  FASTING_STATE: 'fastingState',
-  FASTING_LOGS: 'fastingLogs',
-  APPLE_HEALTH: 'appleHealthConnection',
-} as const;
-
 const dataDirectory = process.env.DATA_DIRECTORY || path.join(process.cwd(), 'data');
 mkdirSync(dataDirectory, { recursive: true });
 
-const databasePath = path.join(dataDirectory, 'caltracker.sqlite');
-const database = new DatabaseSync(databasePath);
+const stateFilePath = path.join(dataDirectory, 'caltracker-state.json');
 
-database.exec(`
-  CREATE TABLE IF NOT EXISTS app_state (
-    client_id TEXT NOT NULL,
-    state_key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (client_id, state_key)
-  ) STRICT
-`);
+type StateKey =
+  | 'meals'
+  | 'goals'
+  | 'waterLogs'
+  | 'burnLogs'
+  | 'fastingState'
+  | 'fastingLogs'
+  | 'appleHealthConnection';
 
-const selectStateStatement = database.prepare(
-  'SELECT value FROM app_state WHERE client_id = ? AND state_key = ?'
-);
-
-const upsertStateStatement = database.prepare(`
-  INSERT INTO app_state (client_id, state_key, value, updated_at)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(client_id, state_key) DO UPDATE SET
-    value = excluded.value,
-    updated_at = excluded.updated_at
-`);
+type PersistedStore = Record<string, AppStorageSnapshot>;
 
 function getTodayDateString(): string {
   const now = new Date();
@@ -186,22 +163,51 @@ function getDefaultAppState(): AppStorageSnapshot {
   };
 }
 
-function readStateValue<T>(clientId: string, stateKey: string, fallbackValue: T): T {
-  const row = selectStateStatement.get(clientId, stateKey) as { value: string } | undefined;
-  if (!row) {
-    return fallbackValue;
+function readStore(): PersistedStore {
+  if (!existsSync(stateFilePath)) {
+    return {};
   }
 
   try {
-    return JSON.parse(row.value) as T;
+    const content = readFileSync(stateFilePath, 'utf-8');
+    if (!content.trim()) {
+      return {};
+    }
+
+    return JSON.parse(content) as PersistedStore;
   } catch (error) {
-    console.error(`Failed to parse state for ${stateKey}`, error);
-    return fallbackValue;
+    console.error('Failed to read persisted app state store', error);
+    return {};
   }
 }
 
-function writeStateValue<T>(clientId: string, stateKey: string, value: T): T {
-  upsertStateStatement.run(clientId, stateKey, JSON.stringify(value), Date.now());
+function writeStore(store: PersistedStore): void {
+  try {
+    writeFileSync(stateFilePath, JSON.stringify(store), 'utf-8');
+  } catch (error) {
+    console.error('Failed to write persisted app state store', error);
+  }
+}
+
+function getClientState(clientId: string): AppStorageSnapshot {
+  const store = readStore();
+  return store[clientId] || getDefaultAppState();
+}
+
+function setClientState(clientId: string, nextState: AppStorageSnapshot): void {
+  const store = readStore();
+  store[clientId] = nextState;
+  writeStore(store);
+}
+
+function saveStateValue<T>(clientId: string, key: StateKey, value: T): T {
+  const current = getClientState(clientId);
+  const nextState = {
+    ...current,
+    [key]: value,
+  } as AppStorageSnapshot;
+
+  setClientState(clientId, nextState);
   return value;
 }
 
@@ -212,61 +218,46 @@ export function getClientId(request: { header(name: string): string | undefined 
 export function getDatabaseInfo() {
   return {
     dataDirectory,
-    databasePath,
+    databasePath: stateFilePath,
   };
 }
 
 export function loadAppState(clientId: string): AppStorageSnapshot {
-  const defaults = getDefaultAppState();
-  return {
-    meals: readStateValue(clientId, STATE_KEYS.MEALS, defaults.meals),
-    goals: readStateValue(clientId, STATE_KEYS.GOALS, defaults.goals),
-    waterLogs: readStateValue(clientId, STATE_KEYS.WATER, defaults.waterLogs),
-    burnLogs: readStateValue(clientId, STATE_KEYS.BURN, defaults.burnLogs),
-    fastingState: readStateValue(clientId, STATE_KEYS.FASTING_STATE, defaults.fastingState),
-    fastingLogs: readStateValue(clientId, STATE_KEYS.FASTING_LOGS, defaults.fastingLogs),
-    appleHealthConnection: readStateValue(clientId, STATE_KEYS.APPLE_HEALTH, defaults.appleHealthConnection),
-  };
+  return getClientState(clientId);
 }
 
 export function saveAppState(clientId: string, state: AppStorageSnapshot): AppStorageSnapshot {
-  writeStateValue(clientId, STATE_KEYS.MEALS, state.meals);
-  writeStateValue(clientId, STATE_KEYS.GOALS, state.goals);
-  writeStateValue(clientId, STATE_KEYS.WATER, state.waterLogs);
-  writeStateValue(clientId, STATE_KEYS.BURN, state.burnLogs);
-  writeStateValue(clientId, STATE_KEYS.FASTING_STATE, state.fastingState);
-  writeStateValue(clientId, STATE_KEYS.FASTING_LOGS, state.fastingLogs);
-  writeStateValue(clientId, STATE_KEYS.APPLE_HEALTH, state.appleHealthConnection);
-  return loadAppState(clientId);
+  setClientState(clientId, state);
+  return getClientState(clientId);
 }
 
 export function saveMeals(clientId: string, meals: MealEntry[]): MealEntry[] {
-  return writeStateValue(clientId, STATE_KEYS.MEALS, meals);
+  return saveStateValue(clientId, 'meals', meals);
 }
 
 export function saveGoals(clientId: string, goals: DailyGoals): DailyGoals {
-  return writeStateValue(clientId, STATE_KEYS.GOALS, goals);
+  return saveStateValue(clientId, 'goals', goals);
 }
 
 export function saveWaterLogs(clientId: string, waterLogs: WaterEntry[]): WaterEntry[] {
-  return writeStateValue(clientId, STATE_KEYS.WATER, waterLogs);
+  return saveStateValue(clientId, 'waterLogs', waterLogs);
 }
 
 export function saveBurnLogs(clientId: string, burnLogs: BurnEntry[]): BurnEntry[] {
-  return writeStateValue(clientId, STATE_KEYS.BURN, burnLogs);
+  return saveStateValue(clientId, 'burnLogs', burnLogs);
 }
 
 export function saveFastingState(clientId: string, fastingState: FastingState): FastingState {
-  return writeStateValue(clientId, STATE_KEYS.FASTING_STATE, fastingState);
+  return saveStateValue(clientId, 'fastingState', fastingState);
 }
 
 export function saveFastingLogs(clientId: string, fastingLogs: FastingLog[]): FastingLog[] {
-  return writeStateValue(clientId, STATE_KEYS.FASTING_LOGS, fastingLogs);
+  return saveStateValue(clientId, 'fastingLogs', fastingLogs);
 }
 
 export function saveAppleHealthConnection(
   clientId: string,
   connectionState: AppleHealthConnectionState
 ): AppleHealthConnectionState {
-  return writeStateValue(clientId, STATE_KEYS.APPLE_HEALTH, connectionState);
+  return saveStateValue(clientId, 'appleHealthConnection', connectionState);
 }
