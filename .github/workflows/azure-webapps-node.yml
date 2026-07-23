@@ -76,9 +76,6 @@ jobs:
       contents: none
     runs-on: ubuntu-latest
     needs: build
-    env:
-      HAS_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-      HAS_AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
     environment:
       name: production
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
@@ -91,32 +88,16 @@ jobs:
 
       - name: Validate Azure credentials
         run: |
-          if [ -z "$HAS_PUBLISH_PROFILE" ] && [ -z "$HAS_AZURE_CREDENTIALS" ]; then
-            echo "Missing Azure credentials. Configure one of:"
-            echo "1) Secret AZURE_WEBAPP_PUBLISH_PROFILE (publish profile XML)"
-            echo "2) Secret AZURE_CREDENTIALS (service principal JSON for azure/login)"
+          if [ -z "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" ]; then
+            echo "Missing Azure credentials. Configure secret:"
+            echo "AZURE_WEBAPP_PUBLISH_PROFILE (publish profile XML)"
             exit 1
           fi
 
-      - name: Azure Login (service principal)
-        if: env.HAS_PUBLISH_PROFILE == '' && env.HAS_AZURE_CREDENTIALS != ''
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Deploy to Azure Web App (publish profile)
-        if: env.HAS_PUBLISH_PROFILE != ''
+      - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: .
-
-      - name: Deploy to Azure Web App (Azure login)
-        if: env.HAS_PUBLISH_PROFILE == '' && env.HAS_AZURE_CREDENTIALS != ''
-        id: deploy-to-webapp-login
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: .
